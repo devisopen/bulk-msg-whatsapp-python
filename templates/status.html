@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Bulk Sender - Status</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background-color: #25D366;
+            color: white;
+            border-radius: 10px 10px 0 0 !important;
+        }
+        .btn-primary {
+            background-color: #25D366;
+            border-color: #25D366;
+        }
+        .btn-primary:hover {
+            background-color: #128C7E;
+            border-color: #128C7E;
+        }
+        .progress {
+            height: 25px;
+        }
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            font-family: monospace;
+        }
+        .status-badge {
+            font-size: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h3 class="mb-0">Task Status</h3>
+                <span class="badge status-badge" id="status-badge">{{ task['status'] }}</span>
+            </div>
+            <div class="card-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category if category != 'error' else 'danger' }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <div class="mb-3">
+                    <label for="progress" class="form-label">Progress: <span id="progress-text">{{ task['progress'] }}/{{ task['total'] }}</span></label>
+                    <div class="progress">
+                        {% set percentage = (task['progress'] / task['total'] * 100)|round(1) if task['total'] > 0 else 0 %}
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" 
+                             style="width: {{ percentage }}%">
+                            {{ percentage }}%
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="row">
+                        <div class="col">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total</h5>
+                                    <p id="total-count" class="card-text">{{ task['total'] }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="card text-center text-success">
+                                <div class="card-body">
+                                    <h5 class="card-title">Successful</h5>
+                                    <p id="success-count" class="card-text">{{ task['successful'] }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col">
+                            <div class="card text-center text-danger">
+                                <div class="card-body">
+                                    <h5 class="card-title">Failed</h5>
+                                    <p id="failed-count" class="card-text">{{ task['failed'] }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">Log:</label>
+                    <div id="log-container" class="log-container">
+                        {% for log_entry in task['log'] %}
+                            <div>{{ log_entry }}</div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('index') }}" class="btn btn-secondary">Back to Home</a>
+                    {% if task['status'] == 'completed' or task['status'] == 'failed' %}
+                        <a href="{{ url_for('clear_task', task_id=task_id) }}" class="btn btn-danger">Clear Task</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Refresh status every 2 seconds
+        const taskId = "{{ task_id }}";
+        const statusUrl = "/api/status/" + taskId;
+        const statusBadge = document.getElementById("status-badge");
+        const progressBar = document.getElementById("progress-bar");
+        const progressText = document.getElementById("progress-text");
+        const totalCount = document.getElementById("total-count");
+        const successCount = document.getElementById("success-count");
+        const failedCount = document.getElementById("failed-count");
+        const logContainer = document.getElementById("log-container");
+
+        function updateStatusClass(status) {
+            statusBadge.classList.remove("bg-primary", "bg-success", "bg-danger", "bg-warning", "bg-info");
+            switch(status) {
+                case "initializing":
+                    statusBadge.classList.add("bg-info");
+                    statusBadge.textContent = "Initializing";
+                    break;
+                case "starting_browser":
+                    statusBadge.classList.add("bg-info");
+                    statusBadge.textContent = "Starting Browser";
+                    break;
+                case "sending":
+                    statusBadge.classList.add("bg-primary");
+                    statusBadge.textContent = "Sending Messages";
+                    break;
+                case "completed":
+                    statusBadge.classList.add("bg-success");
+                    statusBadge.textContent = "Completed";
+                    break;
+                case "failed":
+                    statusBadge.classList.add("bg-danger");
+                    statusBadge.textContent = "Failed";
+                    break;
+                default:
+                    statusBadge.classList.add("bg-warning");
+                    statusBadge.textContent = status;
+            }
+        }
+
+        function updateStatus() {
+            fetch(statusUrl)
+                .then(response => response.json())
+                .then(data => {
+                    updateStatusClass(data.status);
+                    
+                    // Update progress
+                    const progress = data.progress;
+                    const total = data.total;
+                    const percentage = total > 0 ? (progress / total * 100).toFixed(1) : 0;
+                    
+                    progressBar.style.width = percentage + "%";
+                    progressBar.textContent = percentage + "%";
+                    progressText.textContent = progress + "/" + total;
+                    
+                    // Update counts
+                    totalCount.textContent = total;
+                    successCount.textContent = data.successful;
+                    failedCount.textContent = data.failed;
+                    
+                    // Update logs
+                    logContainer.innerHTML = "";
+                    data.log.forEach(entry => {
+                        const div = document.createElement("div");
+                        div.textContent = entry;
+                        logContainer.appendChild(div);
+                    });
+                    
+                    // Auto-scroll to bottom of log
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                    
+                    // If task is still running, schedule next update
+                    if (data.status !== "completed" && data.status !== "failed") {
+                        setTimeout(updateStatus, 2000);
+                    } else {
+                        // Add refresh button
+                        const refreshButton = document.createElement("a");
+                        refreshButton.href = window.location.href;
+                        refreshButton.className = "btn btn-primary";
+                        refreshButton.textContent = "Refresh";
+                        document.querySelector(".d-grid").prepend(refreshButton);
+                    }
+                })
+                .catch(error => {
+                    console.error("Error fetching status:", error);
+                    setTimeout(updateStatus, 5000);
+                });
+        }
+
+        // Start the status updates
+        updateStatus();
+        document.addEventListener('DOMContentLoaded', function() {
+        const progressBar = document.getElementById('progress-bar');
+        const width = progressBar.getAttribute('data-width');
+        progressBar.style.width = width + '%';
+    });
+    </script>
+</body>
+</html>
